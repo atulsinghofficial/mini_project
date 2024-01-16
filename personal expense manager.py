@@ -2,8 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 import sqlite3
+import matplotlib.pyplot as plt
 
-# Establish connection to the database
 conn = sqlite3.connect('budget_manager.db')
 cur = conn.cursor()
 
@@ -12,7 +12,6 @@ cur.execute('''CREATE TABLE IF NOT EXISTS users (
                 username TEXT NOT NULL,
                 password TEXT NOT NULL)''')
 
-# Create transactions table if not exists
 cur.execute('''CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER,
@@ -52,10 +51,10 @@ def login():
 
     if user:
         messagebox.showinfo("Success", f"Welcome, {username}!")
-        logged_in_user_id = user[0]  # Store the logged-in user's ID for transactions
-        show_transactions()  # Display transaction-related interface after login
-        display_transactions()  # Display existing transactions after login
-    else:
+        logged_in_user_id = user[0]  
+        show_transactions()  
+        display_transactions()  
+        update_total_amount() 
         messagebox.showerror("Error", "Invalid credentials")
 
 def register():
@@ -71,22 +70,45 @@ def register():
         messagebox.showwarning("Warning", "Please enter both username and password.")
 
 def add_transaction():
-    # Ensure logged_in_user_id is accessible
     global logged_in_user_id
     
-    # Retrieve transaction details from the entries
     date = date_entry.get()
     description = description_entry.get()
-    category = category_entry.get()
+    category = category_var.get()  
     amount = amount_entry.get()
 
-    # Insert fetched transactions into Treeview
     transactions_tree.insert('', 'end', values=(date, description, category, amount))
 
-    # Insert transaction into the database
     cur.execute("INSERT INTO transactions(user_id, date, description, category, amount) VALUES (?, ?, ?, ?, ?)",
                 (logged_in_user_id, date, description, category, amount))
     conn.commit()
+    
+    # Update the total amount label after each transaction
+    update_total_amount()
+
+def update_total_amount():
+    cur.execute("SELECT SUM(amount) FROM transactions WHERE user_id=?", (logged_in_user_id,))
+    total_amount = cur.fetchone()[0]
+    total_amount_label.config(text=f"Total Amount: {total_amount:.2f}")
+
+def display_category_expenses():
+    cur.execute("SELECT category, SUM(amount) FROM transactions WHERE user_id=? GROUP BY category", (logged_in_user_id,))
+    category_data = cur.fetchall()
+    categories = [row[0] for row in category_data]
+    expenses = [row[1] for row in category_data]
+
+    # Plotting the bar graph
+    plt.figure(figsize=(8, 6), num="Personal Budget Manager Bar Graph")
+    plt.bar(categories, expenses, color=plt.cm.Set3.colors)
+    plt.xlabel('Categories')
+    plt.ylabel('Expenses')
+    plt.title('Expenses by Category')
+    plt.xticks(rotation=45, ha='right')  # Rotate x-axis labels for better readability
+    plt.suptitle('Personal Budget Manager', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+
 
 def display_transactions():
     # Clear existing entries in the Treeview
@@ -109,6 +131,7 @@ def delete_transaction():
     cur.execute("DELETE FROM transactions WHERE user_id=? AND date=? AND description=? AND category=? AND amount=?",
                 transactions_tree.item(selected_item, 'values') + (logged_in_user_id,))
     conn.commit()
+    update_total_amount()
 
 def update_transaction():
     selected_item = transactions_tree.selection()[0]
@@ -123,6 +146,7 @@ def update_transaction():
     cur.execute("UPDATE transactions SET date=?, description=?, category=?, amount=? WHERE user_id=? AND date=? AND description=? AND category=? AND amount=?",
                 new_values + (logged_in_user_id,) + old_values)
     conn.commit()
+    update_total_amount()
 
 def clear_transactions():
     # Remove all entries from the Treeview
@@ -132,6 +156,12 @@ def clear_transactions():
     # Remove all transactions of the logged-in user from the database
     cur.execute("DELETE FROM transactions WHERE user_id=?", (logged_in_user_id,))
     conn.commit()
+    update_total_amount()
+
+
+
+
+
 
 def select_item(event):
     selected_item = transactions_tree.focus()
@@ -152,7 +182,7 @@ root.title("Personal Budget Manager")
 
 # Styling
 style = ttk.Style()
-style.theme_use('clam')  # Change theme to 'clam' for a modern look
+style.theme_use('clam') 
 
 # Main Screen Frame
 main_frame = ttk.Frame(root)
@@ -198,6 +228,19 @@ register_button.pack()
 # Dashboard Frame
 dashboard_frame = ttk.Frame(root)
 
+# Dropdown menu for category selection
+category_label = ttk.Label(dashboard_frame, text="Category:")
+category_label.grid(row=2, column=0, padx=10, pady=5)
+categories = [
+    "Food & Drinks", "Groceries", "Shopping", "Housing", "Energy, Utility",
+    "Transportation", "Vehicle", "Life & Entertainment", "Communication, PC",
+    "Financial Expense", "Investment", "Others"
+]
+category_var = tk.StringVar()
+category_dropdown = ttk.Combobox(dashboard_frame, textvariable=category_var, values=categories)
+category_dropdown.grid(row=2, column=1, padx=10, pady=5)
+
+
 # Entry fields with Labels using ttk style
 date_label = ttk.Label(dashboard_frame, text="Date:")
 date_label.grid(row=0, column=0, padx=10, pady=5)
@@ -212,26 +255,38 @@ description_entry.grid(row=1, column=1, padx=10, pady=5)
 category_label = ttk.Label(dashboard_frame, text="Category:")
 category_label.grid(row=2, column=0, padx=10, pady=5)
 category_entry = ttk.Entry(dashboard_frame)
-category_entry.grid(row=2, column=1, padx=10, pady=5)
 
 amount_label = ttk.Label(dashboard_frame, text="Amount:")
 amount_label.grid(row=3, column=0, padx=10, pady=5)
 amount_entry = ttk.Entry(dashboard_frame)
 amount_entry.grid(row=3, column=1, padx=10, pady=5)
 
+
 add_transaction_button = ttk.Button(dashboard_frame, text="Add Transaction", command=add_transaction)
 add_transaction_button.grid(row=4, column=0, columnspan=2, padx=10, pady=15)
 
+# Button to display expenses by category as a bar graph
+show_bar_graph_button = ttk.Button(dashboard_frame, text="Show Bar Graph", command=display_category_expenses)
+show_bar_graph_button.grid(row=6, column=0, padx=10, pady=10)
+
 # Buttons for delete and update actions
 delete_button = ttk.Button(dashboard_frame, text="Delete", command=delete_transaction)
-delete_button.grid(row=6, column=0, padx=10, pady=10)
+delete_button.grid(row=9, column=0, padx=10, pady=10)
 
 update_button = ttk.Button(dashboard_frame, text="Save", command=update_transaction)
-update_button.grid(row=6, column=1, padx=10, pady=10)
+update_button.grid(row=9, column=1, padx=10, pady=10)
 
 # Button for clearing transactions
 clear_button = ttk.Button(dashboard_frame, text="Clear All", command=clear_transactions)
-clear_button.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+clear_button.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
+
+
+# Label to display total amount
+total_amount_label = ttk.Label(dashboard_frame, text="Total Amount: 0.00")
+total_amount_label.grid(row=6, column=1, columnspan=2, padx=10, pady=5)
+
+
+
 
 # Treeview widget for displaying transactions
 transactions_tree = ttk.Treeview(dashboard_frame, columns=('Date', 'Description', 'Category', 'Amount'), show='headings')
